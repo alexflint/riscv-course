@@ -86,8 +86,8 @@
    $dec_bits[10:0] = {$instr[30], $funct3, $opcode};
    $is_lui   = $dec_bits ==? 11'bx_xxx_0110111;
    $is_auipc = $dec_bits ==? 11'bx_xxx_0010111;
-   $is_jal   = $dec_bits ==? 11'bx_xxx_1101111;
-   $is_jalr  = $dec_bits ==? 11'bx_000_1100111;
+   $is_jal   = $dec_bits ==? 11'bx_xxx_1101111;  // jump and link (PC + IMM)
+   $is_jalr  = $dec_bits ==? 11'bx_000_1100111;  // jump and link register (SRC1 + IMM)
 
    $is_beq   = $dec_bits ==? 11'bx_000_1100011;
    $is_bne   = $dec_bits ==? 11'bx_001_1100011;
@@ -96,27 +96,27 @@
    $is_bltu  = $dec_bits ==? 11'bx_110_1100011;
    $is_bgeu  = $dec_bits ==? 11'bx_111_1100011;
    
-   $is_lb    = $dec_bits ==? 11'bx_000_0000011;  // load byte
-   $is_lh    = $dec_bits ==? 11'bx_001_0000011;  // load half word
-   $is_lw    = $dec_bits ==? 11'bx_010_0000011;  // load word
-   $is_lbu   = $dec_bits ==? 11'bx_100_0000011;
-   $is_lhu   = $dec_bits ==? 11'bx_101_0000011;
+   //$is_lb    = $dec_bits ==? 11'bx_000_0000011;  // load byte
+   //$is_lh    = $dec_bits ==? 11'bx_001_0000011;  // load half word
+   //$is_lw    = $dec_bits ==? 11'bx_010_0000011;  // load word
+   //$is_lbu   = $dec_bits ==? 11'bx_100_0000011;
+   //$is_lhu   = $dec_bits ==? 11'bx_101_0000011;
    $is_load  = $dec_bits ==? 11'bx_xxx_0000011;  // any load instruction
 
-   $is_sb    = $dec_bits ==? 11'bx_000_0100011;  // store byte
-   $is_sh    = $dec_bits ==? 11'bx_001_0100011;  // store half word
-   $is_sw    = $dec_bits ==? 11'bx_010_0100011;  // store word
+   //$is_sb    = $dec_bits ==? 11'bx_000_0100011;  // store byte
+   //$is_sh    = $dec_bits ==? 11'bx_001_0100011;  // store half word
+   //$is_sw    = $dec_bits ==? 11'bx_010_0100011;  // store word
    $is_store = $dec_bits ==? 11'bx_xxx_0100011;  // any store instruction
    
    $is_addi  = $dec_bits ==? 11'bx_000_0010011;  // add immediate
-   $is_slti  = $dec_bits ==? 11'bx_010_0010011;  // shift left immediate?
-   $is_sltiu = $dec_bits ==? 11'bx_011_0010011;  // shift left immediate unsigned?
+   $is_slti  = $dec_bits ==? 11'bx_010_0010011;  // set if less than (unsigned)
+   $is_sltiu = $dec_bits ==? 11'bx_011_0010011;  // set if less than immediate (unsigned)
    $is_xori  = $dec_bits ==? 11'bx_100_0010011;  // xor immediate
    $is_ori   = $dec_bits ==? 11'bx_110_0010011;  // or immediate
    $is_andi  = $dec_bits ==? 11'bx_111_0010011;  // and immediate
    $is_slli  = $dec_bits ==? 11'b0_001_0010011;
    $is_srli  = $dec_bits ==? 11'b0_101_0010011;
-   $is_srai  = $dec_bits ==? 11'b1_101_0010011;
+   $is_srai  = $dec_bits ==? 11'b1_101_0010011;  // shift right immediate
    
    $is_add   = $dec_bits ==? 11'b0_000_0110011;  // add
    $is_sub   = $dec_bits ==? 11'b1_000_0110011;  // subtract
@@ -139,13 +139,51 @@
    $src2_enable = $rs2_valid;
    $src2_index[4:0] = $rs2;
    
+   // compute less-than markers (signed)
+   $slt_bit  = ($src1_value[31] == $src2_value[31]) ? $src1_value < $src2_value : $src1_value[31];
+   $slti_bit = ($src1_value[31] == $imm[31]) ? $src1_value < $imm : $src1_value[31];
+
+   // compute less-than markers (unsigned)
+   $sltu_bit  = $src1_value < $src2_value;
+   $sltiu_bit = $src1_value < $imm;
+
+   // compute right-shift values
+   $sign_extended_src1[63:0] = { {32{$src1_value[31]}}, $src1_value };
+   $sra_result[63:0] = $sign_extended_src1 >> $src2_value[4:0];
+   $srai_result[63:0] = $sign_extended_src1 >> $imm[4:0];
+   
    // compute arithmetic result
-   $result[31:0] = $is_add ? $src1_value + $src2_value :
-                   $is_addi ? $src1_value + $imm :
+   $result[31:0] = $is_andi  ? $src1_value & $imm :
+                   $is_ori   ? $src1_value | $imm :
+                   $is_xori  ? $src1_value ^ $imm :
+                   $is_addi  ? $src1_value + $imm :
+                   $is_slli  ? $src1_value << $imm[5:0] :
+                   $is_srli  ? $src1_value >> $imm[5:0] :
+                   $is_and   ? $src1_value & $src2_value :
+                   $is_or    ? $src1_value | $src2_value :
+                   $is_xor   ? $src1_value ^ $src2_value :
+                   $is_add   ? $src1_value + $src2_value :
+                   $is_sub   ? $src1_value - $src2_value :
+                   $is_sll   ? $src1_value << $src2_value[4:0] :
+                   $is_srl   ? $src1_value >> $src2_value[4:0] :
+                   $is_slt   ? {31'b0, $slt_bit} :
+                   $is_slti  ? {31'b0, $slti_bit} :
+                   $is_sltu  ? {31'b0, $sltu_bit} :
+                   $is_sltiu ? {31'b0, $sltiu_bit} :
+                   $is_lui   ? {$imm[31:12], 12'b0} :
+                   $is_auipc ? $pc + $imm :
+                   $is_jal   ? $pc + 32'd4 :
+                   $is_jalr  ? $pc + 32'd4 :
+                   $is_sra   ? $sra_result[31:0] :
+                   $is_srai  ? $srai_result[31:0] :
+                   $is_load  ? $src1_value + $imm :  // TODO: read this memory location
+                   $is_store ? $src1_value + $imm :  // TODO: store src2_value to this memory location
                    32'b0;
    
-   $result_index[4:0] = $rd;
-   $write_enable = $result_index == 0 ? 0 : $rd_valid;      // never write to register 0
+   // compute values for writing to register file
+   $write_enable = $rd == 0 ? 0 : $rd_valid;  // never write to register 0
+   $write_index[4:0] = $rd;                             // index of register to write to
+   $write_value[31:0] = $is_load ? $ld_data : $result;        // value to write to register
    
    // determine whether the branch condition is met
    $taken_br = $is_beq  ? ($src1_value == $src2_value) :
@@ -156,21 +194,28 @@
                $is_bgeu ? ($src1_value >= $src2_value) :
                0;
    
-   // compute the next value of program counter in the case that we are branching
+   // compute the next program counter in the case that we are branching
    $br_tgt_pc[31:0] = $pc + $imm;
+   
+   // compute the next program counter in the case of jump and link (same as branch)
+   $jal_tgt_pc[31:0] = $pc + $imm;
+   
+   // compute the next program counter in the case of jump and link register
+   $jalr_tgt_pc[31:0] = $src1_value + $imm;
    
    // compute the next program counter
    $next_pc[31:0] = $reset ? 0 :               // upon reset, go to instruction 0
                     $taken_br ? $br_tgt_pc :   // upon branch, go to branch target
+                    $is_jal ? $jal_tgt_pc :    // upon jump-and-link, go to target
+                    $is_jalr ? $jalr_tgt_pc :  // upon jump and link register, go to target
                     $pc + 4;                   // default: go to next instruction
-
    
    // Assert these to end simulation (before Makerchip cycle limit).
    m4+tb()
    *failed = *cyc_cnt > M4_MAX_CYC;
    
-   m4+rf(32, 32, $reset, $write_enable, $result_index[4:0], $result[31:0], $src1_enable, $src1_index[4:0], $src1_value, $src2_enable, $src2_index[4:0], $src2_value)
-   //m4+dmem(32, 32, $reset, $addr[4:0], $wr_en, $wr_data[31:0], $rd_en, $rd_data)
+   m4+rf(32, 32, $reset, $write_enable, $write_index[4:0], $write_value[31:0], $src1_enable, $src1_index[4:0], $src1_value, $src2_enable, $src2_index[4:0], $src2_value)
+   m4+dmem(32, 32, $reset, $result[6:2], $is_store, $src2_value[31:0], $is_load, $ld_data)
    m4+cpu_viz()
 \SV
    endmodule
